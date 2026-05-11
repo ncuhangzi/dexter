@@ -9,6 +9,8 @@ Dexter is an autonomous financial research agent that thinks, plans, and learns 
 - [👋 Overview](#-overview)
 - [✅ Prerequisites](#-prerequisites)
 - [💻 How to Install](#-how-to-install)
+  - [🔐 Optional: Use ChatGPT Subscription (Codex OAuth)](#-optional-use-chatgpt-subscription-codex-oauth)
+  - [🇹🇼 Optional: Taiwan Stocks (FinMind)](#-optional-taiwan-stocks-finmind)
 - [🚀 How to Run](#-how-to-run)
 - [📊 How to Evaluate](#-how-to-evaluate)
 - [🐛 How to Debug](#-how-to-debug)
@@ -48,9 +50,10 @@ Dexter takes complex financial questions and turns them into clear, step-by-step
 ## ✅ Prerequisites
 
 - [Bun](https://bun.com) runtime (v1.0 or higher)
-- OpenAI API key (get [here](https://platform.openai.com/api-keys))
-- Financial Datasets API key (get [here](https://financialdatasets.ai))
-- Exa API key (get [here](https://exa.ai)) - optional, for web search
+- OpenAI API key (get [here](https://platform.openai.com/api-keys)) — **or** a ChatGPT Plus/Pro subscription via [Codex OAuth login](#-optional-use-chatgpt-subscription-codex-oauth)
+- Financial Datasets API key (get [here](https://financialdatasets.ai)) — covers US markets
+- FinMind API token (get [here](https://finmindtrade.com)) — optional, enables 🇹🇼 Taiwan stocks (free tier, 600 req/h)
+- Exa API key (get [here](https://exa.ai)) — optional, for web search
 
 #### Installing Bun
 
@@ -96,8 +99,11 @@ cp env.example .env
 # XAI_API_KEY=your-xai-api-key (optional)
 # OPENROUTER_API_KEY=your-openrouter-api-key (optional)
 
-# Institutional-grade market data for agents
+# Institutional-grade market data for agents (US markets)
 # FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+
+# Taiwan stock market (optional — enables tw_stock_* tools)
+# FINMIND_API_TOKEN=your-finmind-api-token
 
 # (Optional) If using Ollama locally
 # OLLAMA_BASE_URL=http://127.0.0.1:11434
@@ -105,6 +111,46 @@ cp env.example .env
 # Web Search (Exa preferred, Tavily fallback)
 # EXASEARCH_API_KEY=your-exa-api-key
 # TAVILY_API_KEY=your-tavily-api-key
+```
+
+### 🔐 Optional: Use ChatGPT Subscription (Codex OAuth)
+
+If you already pay for ChatGPT Plus/Pro, you can route Dexter's LLM calls through your subscription instead of burning OpenAI API credits. Dexter ships a provider (`codex`) that re-uses the same OAuth flow the official Codex CLI uses.
+
+> ⚠️ **Unofficial — fragile.** This relies on the request shape that OpenAI's Codex backend currently accepts (`https://chatgpt.com/backend-api/codex/responses`). It is not a published API and may stop working at any time without notice (Anthropic and Google removed equivalent flows in 2026). Use at your own risk.
+
+**One-time login:**
+```bash
+bun run scripts/codex-login.ts
+```
+
+This opens your browser, you log in with your ChatGPT account, and a token file is written to `.dexter/codex-auth.json` (refresh tokens auto-rotate). After that:
+
+- Pick the provider from `/model` inside `bun start` → choose **"Codex (ChatGPT login)"** → then pick `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` etc.
+- Or hardcode in `.dexter/settings.json`: `{ "provider": "codex", "modelId": "codex:gpt-5.5" }`.
+
+Only models `>= gpt-5.4` are exposed (older variants are filtered out). The model list is fetched dynamically from the Codex backend on each `/model` open; if that fails it falls back to a bundled list.
+
+**Re-login** if you see `[Codex] 401 auth refresh failed` — that means the refresh token was already consumed (typically by the official Codex CLI sharing the same account). Re-run `bun run scripts/codex-login.ts` and Dexter will use its own isolated token file from then on.
+
+**Debug** with `DEXTER_CODEX_DEBUG=1 bun start` to print every outbound request body.
+
+### 🇹🇼 Optional: Taiwan Stocks (FinMind)
+
+Set `FINMIND_API_TOKEN` in `.env` (free signup at [finmindtrade.com](https://finmindtrade.com)) to unlock Taiwan-listed tickers. Dexter auto-routes 4-digit tickers (e.g. `2330`, `0050`) to FinMind; US tickers continue using Financial Datasets — no manual switch needed.
+
+**Tools registered when the token is present:**
+- `get_tw_stock_price` / `get_tw_stock_prices` — TWSE/TPEx OHLCV (snapshot + historical)
+- `get_tw_financials` — 損益表 / 資產負債表 / 現金流量表
+- `get_tw_dividends` — 現金/股票股利
+- `get_tw_institutional_trades` — 三大法人買賣超
+- `get_tw_margin` — 融資融券餘額
+
+**Examples:**
+```bash
+bun query.ts "台積電 2330 過去 4 季營收與毛利率"
+bun query.ts "0050 上週三大法人買賣超"
+bun query.ts "比較 TSMC (2330) 和 Intel (INTC) 的營收成長率"
 ```
 
 ## 🚀 How to Run
