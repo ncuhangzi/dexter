@@ -9,6 +9,7 @@ export {
   createApiKeyConfirmSelector,
   createApprovalSelector,
   createModelSelector,
+  createOauthConfirmSelector,
   createProviderSelector,
 } from './select-list.js';
 export { ToolEventComponent } from './tool-event.js';

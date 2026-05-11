@@ -33,7 +33,30 @@ const PROVIDER_MODELS: Record<string, Model[]> = {
     { id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro' },
     { id: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash' },
   ],
+  // Hardcoded fallback — used when the /codex/models endpoint can't be
+  // reached. Locked to GPT-5.4+ per project policy. Update when OpenAI
+  // ships newer flagship models that are also available on ChatGPT login.
+  codex: [
+    { id: 'codex:gpt-5.5', displayName: 'GPT-5.5 (ChatGPT 訂閱)' },
+    { id: 'codex:gpt-5.4', displayName: 'GPT-5.4 (ChatGPT 訂閱)' },
+    { id: 'codex:gpt-5.4-mini', displayName: 'GPT-5.4 mini (ChatGPT 訂閱)' },
+  ],
 };
+
+/**
+ * Project policy: only expose Codex models at version 5.4 or newer in the
+ * picker. Filters dynamic responses from `/codex/models` to enforce this
+ * regardless of what OpenAI returns.
+ *
+ * Accepts ids with or without the `codex:` prefix.
+ */
+export function isCodexModelAllowed(modelId: string): boolean {
+  const id = modelId.replace(/^codex:/, '');
+  // Match the leading version number after "gpt-" (e.g., "gpt-5.4-mini" -> 5.4).
+  const match = id.match(/^gpt-(\d+(?:\.\d+)?)/i);
+  if (!match) return false;
+  return parseFloat(match[1]) >= 5.4;
+}
 
 export const PROVIDERS: Provider[] = PROVIDER_DEFS.map((provider) => ({
   displayName: provider.displayName,

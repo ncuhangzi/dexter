@@ -56,9 +56,11 @@ import { getStockPrice, getStockPrices, getStockTickers } from './stock-price.js
 import { getCryptoPriceSnapshot, getCryptoPrices, getCryptoTickers } from './crypto.js';
 import { getCompanyNews } from './news.js';
 import { getInsiderTrades } from './insider_trades.js';
+import { getTwStockPrice, getTwStockPrices } from './tw-stock-price.js';
+import { getTwInstitutionalTrades } from './tw-stock-institutional.js';
+import { getTwMargin } from './tw-stock-margin.js';
 
-// All market data tools available for routing
-const MARKET_DATA_TOOLS: StructuredToolInterface[] = [
+const US_MARKET_DATA_TOOLS: StructuredToolInterface[] = [
   // Stock Prices
   getStockPrice,
   getStockPrices,
@@ -72,8 +74,19 @@ const MARKET_DATA_TOOLS: StructuredToolInterface[] = [
   getInsiderTrades,
 ];
 
-// Create a map for quick tool lookup by name
-const MARKET_DATA_TOOL_MAP = new Map(MARKET_DATA_TOOLS.map(t => [t.name, t]));
+const TW_MARKET_DATA_TOOLS: StructuredToolInterface[] = [
+  getTwStockPrice,
+  getTwStockPrices,
+  getTwInstitutionalTrades,
+  getTwMargin,
+];
+
+/** TW market tools require a FinMind token; otherwise hide them entirely. */
+function getMarketDataTools(): StructuredToolInterface[] {
+  return process.env.FINMIND_API_TOKEN
+    ? [...US_MARKET_DATA_TOOLS, ...TW_MARKET_DATA_TOOLS]
+    : US_MARKET_DATA_TOOLS;
+}
 
 // Build the router system prompt for market data
 function buildRouterPrompt(): string {
@@ -106,7 +119,16 @@ Given a user's natural language query about market data, call the appropriate to
    - For broad market news (macro, rates, earnings, geopolitics) → get_company_news without ticker
    - For insider buying/selling activity → get_insider_trades
    - For "why did X go up/down" → combine get_stock_price + get_company_news
-   - For "what's happening in the markets" → get_company_news without ticker
+   - For "what's happening in the markets" → get_company_news without ticker${
+     process.env.FINMIND_API_TOKEN
+       ? `
+   - **Taiwan stocks (4-digit tickers like 2330, 0050)**: 台積電 → 2330, 鴻海 → 2317, 聯發科 → 2454.
+     - Latest price snapshot → get_tw_stock_price
+     - Historical prices → get_tw_stock_prices
+     - 三大法人 buy/sell → get_tw_institutional_trades
+     - 融資融券 → get_tw_margin`
+       : ''
+   }
 
 4. **Efficiency**:
    - For current/latest price, use snapshot tools (not historical with limit 1)
@@ -139,12 +161,15 @@ export function createGetMarketData(model: string): DynamicStructuredTool {
     func: async (input, _runManager, config?: RunnableConfig) => {
       const onProgress = config?.metadata?.onProgress as ((msg: string) => void) | undefined;
 
+      const tools = getMarketDataTools();
+      const toolMap = new Map(tools.map((t) => [t.name, t]));
+
       // 1. Call LLM with market data tools bound (native tool calling)
       onProgress?.('Fetching market data...');
       const { response } = await callLlm(input.query, {
         model,
         systemPrompt: buildRouterPrompt(),
-        tools: MARKET_DATA_TOOLS,
+        tools,
       });
       const aiMessage = response as AIMessage;
 
@@ -160,7 +185,7 @@ export function createGetMarketData(model: string): DynamicStructuredTool {
       const results = await Promise.all(
         toolCalls.map(async (tc) => {
           try {
-            const tool = MARKET_DATA_TOOL_MAP.get(tc.name);
+            const tool = toolMap.get(tc.name);
             if (!tool) {
               throw new Error(`Tool '${tc.name}' not found`);
             }

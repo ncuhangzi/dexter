@@ -12,6 +12,20 @@ export const TTL_6H = 6 * 60 * 60 * 1000;
 export const TTL_24H = 24 * 60 * 60 * 1000;
 
 /**
+ * Detects Taiwan stock tickers. TWSE (上市) tickers are 4 digits like 2330,
+ * TPEx (上櫃) tickers may also use 4 digits. Optional `.TW` / `.TWO` suffix
+ * is accepted for compatibility with Yahoo-style notation.
+ */
+export function isTaiwanTicker(ticker: string): boolean {
+  return /^\d{4}([.-]TWO?)?$/i.test(ticker.trim());
+}
+
+/** Strip any market suffix and return the bare 4-digit code (e.g. "2330"). */
+export function normalizeTaiwanTicker(ticker: string): string {
+  return ticker.trim().replace(/[.-]TWO?$/i, '').toUpperCase();
+}
+
+/**
  * Race a promise against a timeout. Rejects with a descriptive error
  * if the promise doesn't settle within `ms` milliseconds.
  */

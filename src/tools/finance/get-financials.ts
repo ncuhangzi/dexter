@@ -55,9 +55,10 @@ import { getIncomeStatements, getBalanceSheets, getCashFlowStatements, getAllFin
 import { getKeyRatios, getHistoricalKeyRatios } from './key-ratios.js';
 import { getFinancialSegments } from './segments.js';
 import { getEarnings } from './earnings.js';
+import { getTwFinancials } from './tw-stock-financials.js';
+import { getTwDividends } from './tw-stock-dividends.js';
 
-// All finance tools available for routing
-const FINANCE_TOOLS: StructuredToolInterface[] = [
+const US_FINANCE_TOOLS: StructuredToolInterface[] = [
   // Fundamentals
   getIncomeStatements,
   getBalanceSheets,
@@ -72,11 +73,34 @@ const FINANCE_TOOLS: StructuredToolInterface[] = [
   getFinancialSegments,
 ];
 
-// Create a map for quick tool lookup by name
-const FINANCE_TOOL_MAP = new Map(FINANCE_TOOLS.map(t => [t.name, t]));
+const TW_FINANCE_TOOLS: StructuredToolInterface[] = [
+  getTwFinancials,
+  getTwDividends,
+];
+
+/**
+ * Build the active finance tool list for routing. TW tools are only exposed
+ * when FINMIND_API_TOKEN is configured — if absent, the router won't see them
+ * and will fall back to web search for Taiwan tickers.
+ */
+function getFinanceTools(): StructuredToolInterface[] {
+  return process.env.FINMIND_API_TOKEN
+    ? [...US_FINANCE_TOOLS, ...TW_FINANCE_TOOLS]
+    : US_FINANCE_TOOLS;
+}
 
 // Build the router system prompt - simplified since LLM sees tool schemas
 function buildRouterPrompt(): string {
+  const twHint = process.env.FINMIND_API_TOKEN
+    ? `
+
+5. **Taiwan stocks (4-digit tickers like 2330, 0050)**:
+   - Convert names: 台積電 → 2330, 鴻海 → 2317, 聯發科 → 2454, 0050 ETF → 0050
+   - For income / balance / cash flow → get_tw_financials (set statement to 'income' / 'balance' / 'cashflow' / 'all')
+   - For dividend history (除權息) → get_tw_dividends
+   - FinMind statements are quarterly; default 5y window when the user asks for "long-term" trends`
+    : '';
+
   return `You are a financial data routing assistant.
 Current date: ${getCurrentDate()}
 
@@ -112,6 +136,7 @@ Given a user's natural language query about financial data, call the appropriate
      - Short trend (2-3 periods) → limit 3
      - Medium trend (4-5 periods) → limit 5
    - Increase limit beyond defaults only when the user explicitly asks for long history (e.g., 10-year trend)
+${twHint}
 
 Call the appropriate tool(s) now.`;
 }
@@ -137,12 +162,15 @@ export function createGetFinancials(model: string): DynamicStructuredTool {
     func: async (input, _runManager, config?: RunnableConfig) => {
       const onProgress = config?.metadata?.onProgress as ((msg: string) => void) | undefined;
 
+      const tools = getFinanceTools();
+      const toolMap = new Map(tools.map((t) => [t.name, t]));
+
       // 1. Call LLM with finance tools bound (native tool calling)
       onProgress?.('Fetching...');
       const { response } = await callLlm(input.query, {
         model,
         systemPrompt: buildRouterPrompt(),
-        tools: FINANCE_TOOLS,
+        tools,
       });
       const aiMessage = response as AIMessage;
 
@@ -158,7 +186,7 @@ export function createGetFinancials(model: string): DynamicStructuredTool {
       const results = await Promise.all(
         toolCalls.map(async (tc) => {
           try {
-            const tool = FINANCE_TOOL_MAP.get(tc.name);
+            const tool = toolMap.get(tc.name);
             if (!tool) {
               throw new Error(`Tool '${tc.name}' not found`);
             }

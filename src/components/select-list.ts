@@ -96,6 +96,17 @@ export function createApiKeyConfirmSelector(onConfirm: (wantsToSet: boolean) => 
   return list;
 }
 
+export function createOauthConfirmSelector(onConfirm: (wantsToLogin: boolean) => void) {
+  const items: SelectItem[] = [
+    { value: 'yes', label: '1. Open browser to log in' },
+    { value: 'no', label: '2. Cancel' },
+  ];
+  const list = new VimSelectList(items, 4, selectListTheme);
+  list.onSelect = (item) => onConfirm(item.value === 'yes');
+  list.onCancel = () => onConfirm(false);
+  return list;
+}
+
 export class ApiKeyInputComponent {
   private readonly input = new Input();
   private readonly masked: boolean;

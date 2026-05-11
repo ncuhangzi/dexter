@@ -81,6 +81,15 @@ export const PROVIDERS: ProviderDef[] = [
     modelPrefix: 'ollama:',
     contextWindow: 128_000,
   },
+  {
+    // Unofficial: routes through OpenAI's Codex backend using a ChatGPT
+    // subscription bearer token instead of an API key. See src/auth/codex-oauth.ts.
+    id: 'codex',
+    displayName: 'Codex (ChatGPT login)',
+    modelPrefix: 'codex:',
+    fastModel: 'codex:gpt-5.4-mini',
+    contextWindow: 256_000,
+  },
 ];
 
 const defaultProvider = PROVIDERS.find((p) => p.id === 'openai')!;

@@ -12,6 +12,8 @@ import {
 import { getOllamaModels } from '../utils/ollama.js';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '../model/llm.js';
 import { InMemoryChatHistory } from '../utils/in-memory-chat-history.js';
+import { loginCodex } from '../auth/codex-oauth.js';
+import { fetchCodexModels } from '../model/codex-client.js';
 
 const SELECTION_STATES = [
   'provider_select',
@@ -19,6 +21,8 @@ const SELECTION_STATES = [
   'model_input',
   'api_key_confirm',
   'api_key_input',
+  'oauth_confirm',
+  'oauth_login',
 ] as const;
 
 export type SelectionState = (typeof SELECTION_STATES)[number];
@@ -109,9 +113,36 @@ export class ModelSelectionController {
       return;
     }
 
+    // Codex authenticates via OAuth — if no token yet, ask for consent before
+    // opening a browser. Models are loaded after the login succeeds.
+    if (providerId === 'codex' && !checkApiKeyExistsForProvider('codex')) {
+      this.pendingModelsValue = [];
+      this.appStateValue = 'oauth_confirm';
+      this.emitChange();
+      return;
+    }
+
+    if (providerId === 'codex') {
+      this.pendingModelsValue = await this.loadCodexModels();
+      this.appStateValue = 'model_select';
+      this.emitChange();
+      return;
+    }
+
     this.pendingModelsValue = getModelsForProvider(providerId);
     this.appStateValue = 'model_select';
     this.emitChange();
+  }
+
+  /**
+   * Pull the Codex model catalog from `/codex/models` and fall back to the
+   * hardcoded list (gpt-5.4+) when the request fails. Always filtered to
+   * gpt-5.4+ so older models never sneak in.
+   */
+  private async loadCodexModels(): Promise<Model[]> {
+    const remote = await fetchCodexModels();
+    if (remote && remote.length > 0) return remote;
+    return getModelsForProvider('codex');
   }
 
   handleModelSelect(modelId: string | null) {
@@ -129,6 +160,19 @@ export class ModelSelectionController {
       return;
     }
 
+    // Codex doesn't accept a typed API key — if somehow auth was lost between
+    // provider select and now, route to the OAuth flow instead of api_key_confirm.
+    if (this.pendingProviderValue === 'codex') {
+      if (checkApiKeyExistsForProvider('codex')) {
+        this.completeModelSwitch(this.pendingProviderValue, modelId);
+      } else {
+        this.pendingSelectedModelId = modelId;
+        this.appStateValue = 'oauth_confirm';
+        this.emitChange();
+      }
+      return;
+    }
+
     if (checkApiKeyExistsForProvider(this.pendingProviderValue)) {
       this.completeModelSwitch(this.pendingProviderValue, modelId);
       return;
@@ -136,6 +180,51 @@ export class ModelSelectionController {
 
     this.pendingSelectedModelId = modelId;
     this.appStateValue = 'api_key_confirm';
+    this.emitChange();
+  }
+
+  /**
+   * User confirmed (or declined) opening the browser to log in via Codex OAuth.
+   * On accept, kicks off `loginCodex()` asynchronously and parks the UI in
+   * `oauth_login` state until the flow finishes.
+   */
+  handleOauthConfirm(wantsToLogin: boolean) {
+    if (!wantsToLogin || this.pendingProviderValue !== 'codex') {
+      this.resetPendingState();
+      return;
+    }
+
+    this.appStateValue = 'oauth_login';
+    this.emitChange();
+
+    void this.runCodexOauth();
+  }
+
+  private async runCodexOauth() {
+    try {
+      await loginCodex();
+    } catch (e) {
+      // If the user pressed Esc while the OAuth tab was open, suppress the
+      // error — they already abandoned the flow.
+      if (this.appStateValue !== 'oauth_login') return;
+      const msg = e instanceof Error ? e.message : String(e);
+      this.onError(`Codex login failed: ${msg}`);
+      this.resetPendingState();
+      return;
+    }
+
+    // User cancelled while we were waiting on the browser — don't drag them
+    // back into the picker.
+    if (this.appStateValue !== 'oauth_login') return;
+
+    // After successful login, advance: either complete (if a model was already
+    // chosen) or show the codex model picker.
+    if (this.pendingSelectedModelId) {
+      this.completeModelSwitch('codex', this.pendingSelectedModelId);
+      return;
+    }
+    this.pendingModelsValue = await this.loadCodexModels();
+    this.appStateValue = 'model_select';
     this.emitChange();
   }
 

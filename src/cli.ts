@@ -24,6 +24,7 @@ import {
   WorkingIndicatorComponent,
   createApiKeyConfirmSelector,
   createModelSelector,
+  createOauthConfirmSelector,
   createProviderSelector,
 } from './components/index.js';
 import { editorTheme, theme } from './theme.js';
@@ -584,6 +585,45 @@ export async function runCli() {
         'Enter to confirm · Esc to cancel',
         input,
       );
+      return;
+    }
+
+    if (state.appState === 'oauth_confirm' && state.pendingProvider === 'codex') {
+      const selector = createOauthConfirmSelector((wantsToLogin) =>
+        modelSelection.handleOauthConfirm(wantsToLogin),
+      );
+      showScreenView(
+        'Sign in with ChatGPT',
+        'Codex login uses your ChatGPT subscription quota instead of an API key. ' +
+          'A browser tab will open for OAuth — sign in with your ChatGPT account, ' +
+          'approve, and return here. Tokens are stored locally at .dexter/codex-auth.json.\n' +
+          'Note: this is an unofficial integration; OpenAI may change the auth check at any time.',
+        selector,
+        'Enter to confirm · Esc to cancel',
+        selector,
+      );
+      return;
+    }
+
+    if (state.appState === 'oauth_login' && state.pendingProvider === 'codex') {
+      const body = new Container();
+      body.addChild(new Text(theme.muted('Waiting for browser login...'), 0, 0));
+      body.addChild(new Spacer(1));
+      body.addChild(
+        new Text(
+          theme.muted('If the browser did not open, copy the URL printed in the log and open it manually.'),
+          0,
+          0,
+        ),
+      );
+      showScreenView(
+        'Signing in with ChatGPT',
+        'A browser window should be open. After approving, this screen will advance automatically.',
+        body,
+        'Esc to cancel',
+        undefined,
+      );
+      return;
     }
   };
 

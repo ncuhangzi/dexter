@@ -10,4 +10,9 @@ export { createGetFinancials } from './get-financials.js';
 export { createGetMarketData } from './get-market-data.js';
 export { createReadFilings } from './read-filings.js';
 export { createScreenStocks } from './screen-stocks.js';
+export { getTwStockPrice, getTwStockPrices } from './tw-stock-price.js';
+export { getTwFinancials } from './tw-stock-financials.js';
+export { getTwDividends } from './tw-stock-dividends.js';
+export { getTwInstitutionalTrades } from './tw-stock-institutional.js';
+export { getTwMargin } from './tw-stock-margin.js';
 
