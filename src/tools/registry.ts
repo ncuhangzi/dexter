@@ -40,19 +40,22 @@ export interface RegisteredTool {
  * @returns Array of registered tools
  */
 export function getToolRegistry(model: string): RegisteredTool[] {
+  const twSupport = process.env.FINMIND_API_TOKEN
+    ? ' Supports US + Taiwan (TWSE/TPEx) tickers — pass 4-digit codes (e.g. 2330) directly.'
+    : '';
   const tools: RegisteredTool[] = [
     {
       name: 'get_financials',
       tool: createGetFinancials(model),
       description: GET_FINANCIALS_DESCRIPTION,
-      compactDescription: 'Financial statements and metrics. Handles multi-company/multi-metric queries in one call.',
+      compactDescription: `Financial statements and metrics. Handles multi-company/multi-metric queries in one call.${twSupport}`,
       concurrencySafe: true,
     },
     {
       name: 'get_market_data',
       tool: createGetMarketData(model),
       description: GET_MARKET_DATA_DESCRIPTION,
-      compactDescription: 'Stock/crypto prices, company news, and insider trades. Handles multi-asset queries in one call.',
+      compactDescription: `Stock/crypto prices, company news, and insider trades. Handles multi-asset queries in one call.${twSupport}`,
       concurrencySafe: true,
     },
     {

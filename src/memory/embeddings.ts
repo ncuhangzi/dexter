@@ -11,6 +11,17 @@ const EMBEDDING_TIMEOUT_MS = 15_000;
 
 type ResolvedProvider = Exclude<EmbeddingProviderId, 'auto' | 'none'>;
 
+/**
+ * `your-*` is the env.example placeholder convention. If a user copies the
+ * template without filling values in, the env var is truthy but the key is
+ * fake — treat it as unset so the auto-resolver falls through to a provider
+ * the user actually has credentials for.
+ */
+function hasRealKey(envVar: string): boolean {
+  const value = process.env[envVar];
+  return Boolean(value) && !value!.startsWith('your-');
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -28,10 +39,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 function resolveProvider(preferred: EmbeddingProviderId): ResolvedProvider | null {
-  if (preferred === 'openai' && process.env.OPENAI_API_KEY) {
+  if (preferred === 'openai' && hasRealKey('OPENAI_API_KEY')) {
     return 'openai';
   }
-  if (preferred === 'gemini' && process.env.GOOGLE_API_KEY) {
+  if (preferred === 'gemini' && hasRealKey('GOOGLE_API_KEY')) {
     return 'gemini';
   }
   if (preferred === 'ollama') {
@@ -39,13 +50,13 @@ function resolveProvider(preferred: EmbeddingProviderId): ResolvedProvider | nul
   }
 
   if (preferred === 'auto') {
-    if (process.env.OPENAI_API_KEY) {
+    if (hasRealKey('OPENAI_API_KEY')) {
       return 'openai';
     }
-    if (process.env.GOOGLE_API_KEY) {
+    if (hasRealKey('GOOGLE_API_KEY')) {
       return 'gemini';
     }
-    if (process.env.OLLAMA_BASE_URL) {
+    if (hasRealKey('OLLAMA_BASE_URL')) {
       return 'ollama';
     }
   }

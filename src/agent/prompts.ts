@@ -223,6 +223,9 @@ export function buildSystemPrompt(
 ): string {
   const toolDescriptions = buildCompactToolDescriptions(model);
   const profile = getChannelProfile(channel);
+  const twPolicy = process.env.FINMIND_API_TOKEN
+    ? '\n- Taiwan-listed tickers (4-digit, e.g. 2330 for TSMC, 0050 for the 0050 ETF) are supported via get_financials and get_market_data — call them the same way as US tickers. Do not fall back to web_search for Taiwan stock data.'
+    : '';
 
   const behaviorBullets = profile.behavior.map(b => `- ${b}`).join('\n');
   const formatBullets = profile.responseFormat.map(b => `- ${b}`).join('\n');
@@ -246,7 +249,7 @@ ${toolDescriptions}
 - Call get_financials or get_market_data ONCE with the full natural language query — they handle multi-company/multi-metric requests internally. Do NOT break up queries into multiple calls.
 - Only use web_fetch when headlines are insufficient (need quotes, deal specifics, earnings details).
 - Tool results are automatically capped. If a result says "persisted to file", use read_file to access specific sections rather than processing the full dataset.
-- Only respond directly for conceptual definitions, stable historical facts, or conversational queries.
+- Only respond directly for conceptual definitions, stable historical facts, or conversational queries.${twPolicy}
 
 ${buildSkillsSection()}
 
