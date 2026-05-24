@@ -41,7 +41,7 @@ export interface RegisteredTool {
  */
 export function getToolRegistry(model: string): RegisteredTool[] {
   const twSupport = process.env.FINMIND_API_TOKEN
-    ? ' Supports US + Taiwan (TWSE/TPEx) tickers — pass 4-digit codes (e.g. 2330) directly.'
+    ? ' Supports US + Taiwan (TWSE/TPEx) tickers — pass 4-digit codes (e.g. 2330) directly. TW coverage includes daily + intraday snapshot quotes, monthly revenue (月營收), P/E·P/B·yield history, 三大法人, 融資融券, 外資持股, dividends, and TAIEX/TPEx index.'
     : '';
   const tools: RegisteredTool[] = [
     {

@@ -57,6 +57,8 @@ import { getFinancialSegments } from './segments.js';
 import { getEarnings } from './earnings.js';
 import { getTwFinancials } from './tw-stock-financials.js';
 import { getTwDividends } from './tw-stock-dividends.js';
+import { getTwMonthlyRevenue } from './tw-stock-revenue.js';
+import { getTwStockPer } from './tw-stock-per.js';
 
 const US_FINANCE_TOOLS: StructuredToolInterface[] = [
   // Fundamentals
@@ -76,6 +78,8 @@ const US_FINANCE_TOOLS: StructuredToolInterface[] = [
 const TW_FINANCE_TOOLS: StructuredToolInterface[] = [
   getTwFinancials,
   getTwDividends,
+  getTwMonthlyRevenue,
+  getTwStockPer,
 ];
 
 /**
@@ -97,8 +101,11 @@ function buildRouterPrompt(): string {
 5. **Taiwan stocks (4-digit tickers like 2330, 0050)**:
    - Convert names: 台積電 → 2330, 鴻海 → 2317, 聯發科 → 2454, 0050 ETF → 0050
    - For income / balance / cash flow → get_tw_financials (set statement to 'income' / 'balance' / 'cashflow' / 'all')
+   - For 月營收 / monthly revenue / YoY / MoM growth momentum → get_tw_monthly_revenue
    - For dividend history (除權息) → get_tw_dividends
-   - FinMind statements are quarterly; default 5y window when the user asks for "long-term" trends`
+   - For 本益比 / 股價淨值比 / 殖利率 valuation history (P/E, P/B, dividend yield time series) → get_tw_stock_per
+   - FinMind statements are quarterly; default 5y window when the user asks for "long-term" trends
+   - Prefer the most specific tool — only call get_tw_financials with statement='all' when the user truly needs all three statements`
     : '';
 
   return `You are a financial data routing assistant.

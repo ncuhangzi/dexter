@@ -57,8 +57,11 @@ import { getCryptoPriceSnapshot, getCryptoPrices, getCryptoTickers } from './cry
 import { getCompanyNews } from './news.js';
 import { getInsiderTrades } from './insider_trades.js';
 import { getTwStockPrice, getTwStockPrices } from './tw-stock-price.js';
+import { getTwStockSnapshot } from './tw-stock-snapshot.js';
 import { getTwInstitutionalTrades } from './tw-stock-institutional.js';
 import { getTwMargin } from './tw-stock-margin.js';
+import { getTwShareholding } from './tw-stock-shareholding.js';
+import { getTwIndexPrice } from './tw-index.js';
 
 const US_MARKET_DATA_TOOLS: StructuredToolInterface[] = [
   // Stock Prices
@@ -77,8 +80,11 @@ const US_MARKET_DATA_TOOLS: StructuredToolInterface[] = [
 const TW_MARKET_DATA_TOOLS: StructuredToolInterface[] = [
   getTwStockPrice,
   getTwStockPrices,
+  getTwStockSnapshot,
   getTwInstitutionalTrades,
   getTwMargin,
+  getTwShareholding,
+  getTwIndexPrice,
 ];
 
 /** TW market tools require a FinMind token; otherwise hide them entirely. */
@@ -123,10 +129,13 @@ Given a user's natural language query about market data, call the appropriate to
      process.env.FINMIND_API_TOKEN
        ? `
    - **Taiwan stocks (4-digit tickers like 2330, 0050)**: 台積電 → 2330, 鴻海 → 2317, 聯發科 → 2454.
-     - Latest price snapshot → get_tw_stock_price
+     - **Real-time / intraday quote (現價/盤中/即時)** → get_tw_stock_snapshot (requires Sponsor tier; if it fails, fall back to get_tw_stock_price)
+     - Latest daily close snapshot → get_tw_stock_price
      - Historical prices → get_tw_stock_prices
      - 三大法人 buy/sell → get_tw_institutional_trades
-     - 融資融券 → get_tw_margin`
+     - 融資融券 / 借券 → get_tw_margin
+     - 外資持股 (foreign holdings & ceiling) → get_tw_shareholding
+     - 大盤 / 加權指數 / 上櫃指數 → get_tw_index_price (index='TAIEX' or 'TPEx')`
        : ''
    }
 

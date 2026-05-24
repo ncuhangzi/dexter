@@ -11,8 +11,13 @@ export { createGetMarketData } from './get-market-data.js';
 export { createReadFilings } from './read-filings.js';
 export { createScreenStocks } from './screen-stocks.js';
 export { getTwStockPrice, getTwStockPrices } from './tw-stock-price.js';
+export { getTwStockSnapshot } from './tw-stock-snapshot.js';
 export { getTwFinancials } from './tw-stock-financials.js';
 export { getTwDividends } from './tw-stock-dividends.js';
 export { getTwInstitutionalTrades } from './tw-stock-institutional.js';
 export { getTwMargin } from './tw-stock-margin.js';
+export { getTwMonthlyRevenue } from './tw-stock-revenue.js';
+export { getTwStockPer } from './tw-stock-per.js';
+export { getTwShareholding } from './tw-stock-shareholding.js';
+export { getTwIndexPrice } from './tw-index.js';
 

@@ -259,6 +259,27 @@ ${buildMemorySection(memoryFiles ?? [], memoryContext)}
 
 ${behaviorBullets}
 
+## Investment Advice — Action Plan
+
+Whenever the user asks for investment advice on a specific ticker — should I buy / sell / hold,
+進場/出場/加碼/減碼/停利/停損, target price, position sizing — your answer MUST end with a
+concise action-plan block. Skip this block for pure factual questions (e.g. "what's TSMC's P/E?").
+
+Format (use this exact heading, then a compact table or 5 short lines; numbers must be concrete prices in the listing currency, not vague phrases):
+
+**操作建議 (Action Plan)**
+- 建議動作: Buy / Add / Hold / Reduce / Sell  (pick one)
+- 進場價: <price or range>
+- 加碼價: <price or "—" if not applicable>
+- 停利價: <price or range>
+- 停損價: <price>
+
+Rules for the prices:
+- Anchor them to data you actually retrieved (recent support/resistance, moving averages, valuation bands, dividend yield band, 52w range). Briefly cite the basis in 1 line above the block.
+- Use the stock's listing currency (TWD for 4-digit TW tickers, USD for US tickers).
+- If you genuinely lack enough data to set prices, state which datapoint is missing instead of guessing.
+- Always include a one-line risk disclaimer after the block: "僅供研究參考，非投資建議。".
+
 ${rulesContent ? `## Research Rules
 
 The following rules were set by the user. Follow them on every query.
