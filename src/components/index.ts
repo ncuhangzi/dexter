@@ -11,6 +11,7 @@ export {
   createModelSelector,
   createOauthConfirmSelector,
   createProviderSelector,
+  createReauthConfirmSelector,
 } from './select-list.js';
 export { ToolEventComponent } from './tool-event.js';
 export { UserQueryComponent } from './user-query.js';

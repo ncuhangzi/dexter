@@ -23,6 +23,11 @@ const SELECTION_STATES = [
   'api_key_input',
   'oauth_confirm',
   'oauth_login',
+  // Shown after a model is picked when a key/OAuth token already exists for
+  // the provider. Lets the user reuse stored credentials or overwrite them
+  // (re-enter API key / re-run OAuth) — useful when the existing credential
+  // has expired or been rotated and we'd otherwise silently use the dead one.
+  'reauth_confirm',
 ] as const;
 
 export type SelectionState = (typeof SELECTION_STATES)[number];
@@ -164,7 +169,9 @@ export class ModelSelectionController {
     // provider select and now, route to the OAuth flow instead of api_key_confirm.
     if (this.pendingProviderValue === 'codex') {
       if (checkApiKeyExistsForProvider('codex')) {
-        this.completeModelSwitch(this.pendingProviderValue, modelId);
+        this.pendingSelectedModelId = modelId;
+        this.appStateValue = 'reauth_confirm';
+        this.emitChange();
       } else {
         this.pendingSelectedModelId = modelId;
         this.appStateValue = 'oauth_confirm';
@@ -174,7 +181,9 @@ export class ModelSelectionController {
     }
 
     if (checkApiKeyExistsForProvider(this.pendingProviderValue)) {
-      this.completeModelSwitch(this.pendingProviderValue, modelId);
+      this.pendingSelectedModelId = modelId;
+      this.appStateValue = 'reauth_confirm';
+      this.emitChange();
       return;
     }
 
@@ -240,13 +249,61 @@ export class ModelSelectionController {
 
     const fullModelId = `${this.pendingProviderValue}:${modelName}`;
     if (checkApiKeyExistsForProvider(this.pendingProviderValue)) {
-      this.completeModelSwitch(this.pendingProviderValue, fullModelId);
+      this.pendingSelectedModelId = fullModelId;
+      this.appStateValue = 'reauth_confirm';
+      this.emitChange();
       return;
     }
 
     this.pendingSelectedModelId = fullModelId;
     this.appStateValue = 'api_key_confirm';
     this.emitChange();
+  }
+
+  /**
+   * After the picker reaches `reauth_confirm`, the user chose whether to
+   * keep the stored credential or overwrite it. "Keep" just completes the
+   * model switch; "overwrite" routes to the OAuth login (codex) or API key
+   * input (everyone else).
+   */
+  handleReauthConfirm(wantsReauth: boolean) {
+    if (!this.pendingProviderValue || !this.pendingSelectedModelId) {
+      this.resetPendingState();
+      return;
+    }
+
+    if (!wantsReauth) {
+      this.completeModelSwitch(this.pendingProviderValue, this.pendingSelectedModelId);
+      return;
+    }
+
+    if (this.pendingProviderValue === 'codex') {
+      this.appStateValue = 'oauth_login';
+      this.emitChange();
+      void this.runCodexOauth();
+      return;
+    }
+
+    this.appStateValue = 'api_key_input';
+    this.emitChange();
+  }
+
+  /**
+   * Auto-prompt entry point: agent calls this when the Codex backend rejects
+   * the stored token (typically `CodexRefreshTokenReusedError` or a 401 that
+   * survived the in-client refresh retry). Pre-fills the current provider /
+   * model so the OAuth flow doesn't bounce the user into a model picker —
+   * after a successful login it completes back to where they were.
+   *
+   * No-ops if a picker flow is already in progress (don't yank the UI).
+   */
+  startCodexReauth() {
+    if (this.appStateValue !== 'idle') return;
+    this.pendingProviderValue = 'codex';
+    this.pendingSelectedModelId = this.modelValue;
+    this.appStateValue = 'oauth_login';
+    this.emitChange();
+    void this.runCodexOauth();
   }
 
   handleApiKeyConfirm(wantsToSet: boolean) {

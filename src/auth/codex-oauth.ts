@@ -12,7 +12,16 @@
  *     updated to match a current `codex` CLI build.
  */
 import { createHash, randomBytes } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { createServer } from 'http';
@@ -33,6 +42,16 @@ const REDIRECT_PORT = 1455;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/auth/callback`;
 
 const DEXTER_TOKEN_PATH = dexterPath('codex-auth.json');
+const DEXTER_LOCK_PATH = `${DEXTER_TOKEN_PATH}.lock`;
+/**
+ * Stale lock cleanup — if a previous Dexter process crashed mid-refresh and
+ * left the lock file behind, we don't want to deadlock forever. 30s is long
+ * enough that an in-flight refresh (which is bounded by a 10s fetch timeout)
+ * will always complete first.
+ */
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_INTERVAL_MS = 100;
+const LOCK_MAX_WAIT_MS = 15_000;
 
 interface StoredTokens {
   access_token: string;
@@ -88,6 +107,44 @@ function importCodexHomeIfMissing(): void {
     );
   } catch {
     // Best-effort; if the file is malformed the user can just run the login script.
+
+  }
+}
+
+/**
+ * Re-import tokens from `~/.codex/auth.json` when our local refresh failed —
+ * the official `codex` CLI may have rotated the refresh_token out from under
+ * us in another terminal. Only takes over if the home file is newer than our
+ * own and has a different refresh_token; returns the imported tokens or null
+ * if there's nothing fresher to use.
+ */
+function reimportCodexHomeIfNewer(): StoredTokens | null {
+  const path = codexHomePath();
+  if (!existsSync(path)) return null;
+  try {
+    const homeStat = statSync(path);
+    const localStat = existsSync(DEXTER_TOKEN_PATH) ? statSync(DEXTER_TOKEN_PATH) : null;
+    if (localStat && homeStat.mtimeMs <= localStat.mtimeMs) return null;
+
+    const auth = JSON.parse(readFileSync(path, 'utf-8')) as CodexHomeAuth;
+    if (!auth.tokens?.access_token || !auth.tokens.refresh_token) return null;
+
+    const existing = readDexterTokens();
+    if (existing && existing.refresh_token === auth.tokens.refresh_token) return null;
+
+    const imported: StoredTokens = {
+      access_token: auth.tokens.access_token,
+      refresh_token: auth.tokens.refresh_token,
+      id_token: auth.tokens.id_token,
+      account_id: auth.tokens.account_id,
+      // Same as importCodexHomeIfMissing — let the next call refresh proactively.
+      expires_at: 0,
+    };
+    writeDexterTokens(imported);
+    logger.info(`[Codex OAuth] re-imported fresh tokens from ${path} (codex CLI rotated)`);
+    return imported;
+  } catch {
+    return null;
   }
 }
 
@@ -268,6 +325,122 @@ async function refreshTokens(refreshToken: string): Promise<StoredTokens> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Refresh lock — two scopes:
+//
+// 1. In-process: parallel tool calls all need a token and would otherwise race
+//    into `refreshTokens`. First wins, rest get `refresh_token_reused`. The
+//    `inFlightRefresh` promise lets all callers share a single refresh.
+//
+// 2. Cross-process: Dexter and the official `codex` CLI both rotate the same
+//    refresh_token. An exclusive-create lock file on disk (with a stale-TTL
+//    fallback in case a holder crashed) prevents the race.
+// ---------------------------------------------------------------------------
+
+let inFlightRefresh: Promise<StoredTokens> | null = null;
+
+async function acquireFileLock(path: string): Promise<() => void> {
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  while (true) {
+    try {
+      // O_EXCL ("wx") — fails if the file already exists. That's the lock.
+      const fd = openSync(path, 'wx');
+      // Record holder pid for debugging; we don't actually verify on takeover.
+      writeFileSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => {
+        try {
+          unlinkSync(path);
+        } catch {
+          // Lock was already cleared (e.g., stolen via stale-cleanup); ignore.
+        }
+      };
+    } catch (err: unknown) {
+      if (!isLockBusy(err)) throw err;
+      // Lock exists — check if it's stale and steal it, otherwise wait.
+      try {
+        const stat = statSync(path);
+        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+          logger.warn(`[Codex OAuth] stealing stale lock at ${path}`);
+          try { unlinkSync(path); } catch { /* race with another stealer */ }
+          continue;
+        }
+      } catch {
+        // stat failed → file vanished, retry the acquire immediately
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`[Codex OAuth] timed out waiting ${LOCK_MAX_WAIT_MS}ms for refresh lock`);
+      }
+      await sleep(LOCK_RETRY_INTERVAL_MS);
+    }
+  }
+}
+
+function isLockBusy(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: string }).code;
+  return code === 'EEXIST';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Refresh under both in-process and cross-process locks. Inside the lock we
+ * re-read the token file — another holder may have already refreshed for us,
+ * in which case we can return their tokens without burning a refresh call.
+ */
+async function refreshUnderLock(currentRefreshToken: string): Promise<StoredTokens> {
+  if (inFlightRefresh) return inFlightRefresh;
+
+  inFlightRefresh = (async () => {
+    const release = await acquireFileLock(DEXTER_LOCK_PATH);
+    try {
+      // Re-read inside the lock — another process may have just refreshed.
+      const latest = readDexterTokens();
+      if (
+        latest &&
+        latest.refresh_token !== currentRefreshToken &&
+        latest.expires_at &&
+        latest.expires_at - Date.now() > 60_000
+      ) {
+        return latest;
+      }
+
+      const tokensToUse = latest ?? null;
+      const refreshToken = tokensToUse?.refresh_token ?? currentRefreshToken;
+      try {
+        const fresh = await refreshTokens(refreshToken);
+        writeDexterTokens(fresh);
+        return fresh;
+      } catch (err) {
+        // If the official `codex` CLI rotated the token in another terminal,
+        // ~/.codex/auth.json may have a usable refresh_token. Try once before
+        // giving up — keeps the user logged in across CLI clients.
+        if (err instanceof CodexRefreshTokenReusedError) {
+          const reimported = reimportCodexHomeIfNewer();
+          if (reimported && reimported.refresh_token !== refreshToken) {
+            const fresh = await refreshTokens(reimported.refresh_token);
+            writeDexterTokens(fresh);
+            return fresh;
+          }
+        }
+        throw err;
+      }
+    } finally {
+      release();
+    }
+  })();
+
+  try {
+    return await inFlightRefresh;
+  } finally {
+    inFlightRefresh = null;
+  }
+}
+
 async function openInBrowser(url: string): Promise<void> {
   // Cross-platform browser open without pulling in a dep. macOS uses `open`,
   // Linux uses `xdg-open`, Windows uses `start`. If none are available the
@@ -336,8 +509,7 @@ export async function getCodexToken(): Promise<string> {
   // Refresh slightly before expiry to avoid mid-call invalidation.
   if (tokens.expires_at && tokens.expires_at - Date.now() < 60_000) {
     try {
-      tokens = await refreshTokens(tokens.refresh_token);
-      writeDexterTokens(tokens);
+      tokens = await refreshUnderLock(tokens.refresh_token);
     } catch (e) {
       logger.warn(`[Codex OAuth] proactive refresh failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -353,8 +525,7 @@ export async function getCodexToken(): Promise<string> {
 export async function refreshCodexToken(): Promise<string> {
   const tokens = (importCodexHomeIfMissing(), readDexterTokens());
   if (!tokens) throw new Error('[Codex OAuth] no credentials to refresh');
-  const fresh = await refreshTokens(tokens.refresh_token);
-  writeDexterTokens(fresh);
+  const fresh = await refreshUnderLock(tokens.refresh_token);
   return fresh.access_token;
 }
 

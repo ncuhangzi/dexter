@@ -94,6 +94,25 @@ export class AgentRunnerController {
     };
   }
 
+  /**
+   * Replace cryptic upstream errors with messages that point at the actual
+   * recovery action. Currently handles the LangChain Codex converter crash
+   * when the SSE stream lacks `response.output` (rate limit, quota, or a
+   * malformed response that slipped past our fetch-layer guards).
+   */
+  private augmentErrorMessage(message: string): string {
+    if (this.agentConfig.modelProvider === 'codex' && /output\.map|response\.output|is not an object/i.test(message)) {
+      return (
+        `${message}\n\n` +
+        'Hint: the Codex backend returned a response without the expected output ' +
+        'field. Common causes: rate limit / quota exhausted, the session token ' +
+        'expired mid-request, or a transient backend issue. Try /model to switch ' +
+        'or re-authenticate; set DEXTER_CODEX_DEBUG=1 to capture the raw request.'
+      );
+    }
+    return message;
+  }
+
   respondToApproval(decision: ApprovalDecision) {
     if (!this.approvalResolve) {
       return;
@@ -181,7 +200,7 @@ export class AgentRunnerController {
         return undefined;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.errorValue = message;
+      this.errorValue = this.augmentErrorMessage(message);
       this.markLastProcessing('error');
       this.workingStateValue = { status: 'idle' };
       this.resetTurnStats();

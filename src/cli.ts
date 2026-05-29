@@ -26,6 +26,7 @@ import {
   createModelSelector,
   createOauthConfirmSelector,
   createProviderSelector,
+  createReauthConfirmSelector,
 } from './components/index.js';
 import { editorTheme, theme } from './theme.js';
 import { matchCommands, type SlashCommand } from './commands/index.js';
@@ -196,7 +197,20 @@ export async function runCli() {
   let lastRenderedStatus = '';
   let lastRenderedAnswer = false;
   let lastRenderedQueryId: string | null = null;
+  let lastSeenAgentError: string | null = null;
   const finalizedToolIds = new Set<string>();
+
+  // Heuristic: Codex backend rejected the stored OAuth token even after the
+  // in-client refresh retry. Trigger the picker's re-auth flow so the user
+  // can re-login without leaving the CLI.
+  function looksLikeCodexAuthFailure(message: string): boolean {
+    return (
+      modelSelection.provider === 'codex' &&
+      (/refresh_token_reused/i.test(message) ||
+        /401 auth refresh failed/i.test(message) ||
+        /no credentials/i.test(message))
+    );
+  }
 
   agentRunner = new AgentRunnerController(
     { model: modelSelection.model, modelProvider: modelSelection.provider, maxIterations: 10 },
@@ -260,6 +274,19 @@ export async function runCli() {
       }
 
       workingIndicator.setState(agentRunner.workingState);
+
+      // Fresh agent error this tick? If it's a codex auth failure, jump the
+      // user straight into the re-auth flow instead of leaving them stuck.
+      const currentError = agentRunner.error;
+      if (currentError && currentError !== lastSeenAgentError) {
+        lastSeenAgentError = currentError;
+        if (looksLikeCodexAuthFailure(currentError)) {
+          modelSelection.startCodexReauth();
+        }
+      } else if (!currentError) {
+        lastSeenAgentError = null;
+      }
+
       updateView();
       throttledRender();
     },
@@ -568,6 +595,28 @@ export async function runCli() {
         `Would you like to set your ${getProviderDisplayName(state.pendingProvider)} API key?`,
         selector,
         'Enter to confirm · esc to decline',
+        selector,
+      );
+      return;
+    }
+
+    if (state.appState === 'reauth_confirm' && state.pendingProvider) {
+      const isOauth = state.pendingProvider === 'codex';
+      const selector = createReauthConfirmSelector(isOauth, (wantsReauth) =>
+        modelSelection.handleReauthConfirm(wantsReauth),
+      );
+      const providerLabel = getProviderDisplayName(state.pendingProvider);
+      const body = isOauth
+        ? `A ChatGPT OAuth token is already stored at .dexter/codex-auth.json. ` +
+          `Choose "Re-authenticate" if the previous session expired, was revoked, or another ` +
+          `client (e.g. the official codex CLI) rotated the refresh token.`
+        : `An API key is already stored for ${providerLabel}. ` +
+          `Choose "Replace API key" if the existing one expired or was rotated.`;
+      showScreenView(
+        `${providerLabel} already authenticated`,
+        body,
+        selector,
+        'Enter to confirm · esc to keep existing',
         selector,
       );
       return;

@@ -107,6 +107,27 @@ export function createOauthConfirmSelector(onConfirm: (wantsToLogin: boolean) =>
   return list;
 }
 
+/**
+ * Choice shown when the picker reaches a provider that already has a stored
+ * credential. Default (Esc) keeps the existing credential to avoid surprises.
+ */
+export function createReauthConfirmSelector(
+  isOauth: boolean,
+  onConfirm: (wantsReauth: boolean) => void,
+) {
+  const items: SelectItem[] = [
+    { value: 'keep', label: '1. Use existing credentials' },
+    {
+      value: 'reauth',
+      label: isOauth ? '2. Re-authenticate (open browser)' : '2. Replace API key',
+    },
+  ];
+  const list = new VimSelectList(items, 4, selectListTheme);
+  list.onSelect = (item) => onConfirm(item.value === 'reauth');
+  list.onCancel = () => onConfirm(false);
+  return list;
+}
+
 export class ApiKeyInputComponent {
   private readonly input = new Input();
   private readonly masked: boolean;

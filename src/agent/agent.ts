@@ -272,13 +272,19 @@ export class Agent {
   /**
    * Call LLM with streaming, falling back to blocking invoke on error.
    * Yields StreamProgressEvents as chunks arrive; returns the final accumulated message.
+   *
+   * Codex is excluded from the fallback because its blocking `invoke()` still
+   * uses the same SSE stream under the hood (Codex backend mandates
+   * `stream: true`). Falling back on Codex just doubles the wait time on every
+   * failure — surface the streaming error directly instead.
    */
   private async *callModelWithStreaming(
     messages: BaseMessage[],
   ): AsyncGenerator<StreamProgressEvent, { response: AIMessage; usage?: TokenUsage }> {
     try {
       return yield* this.streamAndAccumulate(messages);
-    } catch {
+    } catch (err) {
+      if (resolveProvider(this.model).id === 'codex') throw err;
       // Fallback to blocking invoke (handles providers without streaming support)
       return await this.callModelWithMessages(messages);
     }
